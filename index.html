@@ -261,6 +261,9 @@ a.btn{text-decoration:none;display:inline-block;color:var(--ink)}
   </form>
 </div>
 <div class="toast" id="toast" hidden role="status"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 (function(){
 'use strict';
@@ -299,7 +302,17 @@ const F={status:new Set(),year:new Set(),rating:new Set(),taste:new Set(),cuisin
 const route={a:null,b:null};
 const V={cx:0,cy:0,k:70};
 let W=800,H=600;
-const store={mode:'local',col:null,assets:null};
+const store={mode:'local',col:null,assets:null,uid:null};
+const firebaseConfig={
+  apiKey:"AIzaSyBm__Me4P-b0g52WM27sljFNpDpRjoudUY",
+  authDomain:"thao-20261020.firebaseapp.com",
+  projectId:"thao-20261020",
+  storageBucket:"thao-20261020.firebasestorage.app",
+  messagingSenderId:"63061040109",
+  appId:"1:63061040109:web:0ffdd4c1ed6d8e3542e5e4",
+  measurementId:"G-KRSDWHP44P"
+};
+const userErr=m=>{const e=new Error(m);e.userMsg=m;return e};
 const LS='bandoanngon.places.v1';
 
 function haversine(a,b){const R=6371,r=Math.PI/180,dl=(b.lat-a.lat)*r,dg=(b.lng-a.lng)*r,x=Math.sin(dl/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
@@ -316,19 +329,36 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTi
 function lsLoad(){try{const a=JSON.parse(localStorage.getItem(LS)||'[]');return Array.isArray(a)?a:[]}catch(e){return[]}}
 function lsSave(){try{localStorage.setItem(LS,JSON.stringify(places));return true}catch(e){return false}}
 async function savePlace(p){
-  if(store.mode==='db'){await store.col.doc(p.id).set(p);return}
+  if(store.mode==='db'){
+    const ex=places.find(x=>x.id===p.id);
+    if(ex&&ex.owner&&store.uid&&ex.owner!==store.uid)throw userErr('Quán này do người khác thêm, bạn chỉ xem được thôi.');
+    if(store.uid)p.owner=(ex&&ex.owner)||store.uid;
+    const clean=JSON.parse(JSON.stringify(p));
+    if(JSON.stringify(clean).length>900000)throw userErr('Quán có quá nhiều ảnh, hãy bớt ảnh rồi lưu lại.');
+    await store.col.doc(p.id).set(clean);return}
   const i=places.findIndex(x=>x.id===p.id);if(i>=0)places[i]=p;else places.push(p);
   if(!lsSave())toast('Bộ nhớ trình duyệt đầy, hãy bớt ảnh cho quán này.');
   afterData();
 }
 async function removePlace(id){
-  if(store.mode==='db'){await store.col.doc(id).delete();return}
+  if(store.mode==='db'){
+    const ex=places.find(x=>x.id===id);
+    if(ex&&ex.owner&&store.uid&&ex.owner!==store.uid)throw userErr('Quán này do người khác thêm, bạn không xóa được.');
+    await store.col.doc(id).delete();return}
   places=places.filter(x=>x.id!==id);lsSave();afterData();
 }
 async function initStore(){
   const c=window.claude;
   try{if(c&&c.use){const db=await c.use('db');if(db){store.col=db.collection('places');store.mode='db'}}}catch(e){}
   try{if(c&&c.use)store.assets=await c.use('assets')}catch(e){store.assets=null}
+  if(store.mode!=='db'&&window.firebase){
+    try{
+      firebase.initializeApp(firebaseConfig);
+      const cred=await firebase.auth().signInAnonymously();
+      store.uid=cred.user.uid;
+      store.col=firebase.firestore().collection('places');store.mode='db';
+    }catch(e){store.mode='local';store.col=null;store.uid=null}
+  }
   if(store.mode==='db'){
     store.col.onSnapshot(snap=>{places=snap.docs.map(d=>Object.assign({},d.data(),{id:d.id}));afterData()},
       ()=>{store.mode='local';places=lsLoad();afterData()});
@@ -515,7 +545,7 @@ function renderDrawer(){
   if(wish)$('#d-ate').onclick=()=>openForm(p,true);
   $('#d-del').onclick=function(){
     const box=this.parentNode;box.innerHTML='<span class="note" style="align-self:center">Xóa quán này vĩnh viễn?</span><button class="btn sm danger" id="d-yes" type="button">Xóa</button><button class="btn sm" id="d-no" type="button">Giữ lại</button>';
-    $('#d-no').onclick=renderDrawer;$('#d-yes').onclick=async()=>{try{await removePlace(p.id);closeDrawer();toast('Đã xóa quán')}catch(e){toast('Chưa xóa được, thử lại nhé')}}};
+    $('#d-no').onclick=renderDrawer;$('#d-yes').onclick=async()=>{try{await removePlace(p.id);closeDrawer();toast('Đã xóa quán')}catch(e){toast(e&&e.userMsg||'Chưa xóa được, thử lại nhé')}}};
 }
 
 /* ---------- route ---------- */
@@ -623,7 +653,7 @@ $('#form').addEventListener('submit',async e=>{
     revisit:$('#f-revisit').checked,photos:draftPhotos.slice(),memPhotos:draftMem.slice(),absent:MEMBERS.filter((m,i)=>$('#f-abs-'+i).checked),approx:!!(editing&&editing.approx&&Math.abs(editing.lat-c.lat)<1e-9&&Math.abs(editing.lng-c.lng)<1e-9),example:false,createdAt:editing&&editing.createdAt||Date.now()};
   const btn=$('#f-save');btn.disabled=true;
   try{await savePlace(p);closeForm();toast('Đã lưu '+p.name);selectPlace(p.id,true)}
-  catch(err){toast('Chưa lưu được, thử lại nhé')}
+  catch(err){toast(err&&err.userMsg||'Chưa lưu được, thử lại nhé')}
   btn.disabled=false;
 });
 
