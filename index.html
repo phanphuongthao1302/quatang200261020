@@ -238,8 +238,8 @@ a.btn{text-decoration:none;display:inline-block;color:var(--ink)}
     </div>
     <div class="field"><label for="f-addr">Địa chỉ</label><input id="f-addr" class="in" maxlength="200" placeholder="Số nhà, đường, quận"></div>
     <div class="field"><label for="f-coord">Vị trí trên bản đồ</label>
-      <div class="row"><input id="f-coord" class="in" required placeholder="Dán tọa độ hoặc link Google Maps"><button class="btn sm" id="f-pick" type="button">Chọn trên bản đồ</button></div>
-      <div class="note">Trên Google Maps, bấm giữ vào quán rồi chép dòng tọa độ (ví dụ 21.0285, 105.8522), hoặc dán cả link.</div></div>
+      <div class="row" style="flex-wrap:wrap"><input id="f-coord" class="in" required placeholder="Dán tọa độ hoặc link Google Maps"><button class="btn sm" id="f-pick" type="button">Chọn trên bản đồ</button><button class="btn sm" id="f-gmap" type="button">Mở Google Maps</button></div>
+      <div class="note">Bấm “Mở Google Maps” để tìm quán, rồi bấm giữ vào quán trên bản đồ và chép dòng tọa độ (ví dụ 21.0285, 105.8522), hoặc dán cả link đầy đủ. Sau khi chép, quay lại trang này, tọa độ sẽ tự điền vào ô (trình duyệt có thể hỏi quyền đọc bộ nhớ chép, bạn chọn Cho phép). Link rút gọn dạng maps.app.goo.gl thì trang chưa đọc được.</div></div>
     <div class="field"><label for="f-dishes">Món đã gọi</label><input id="f-dishes" class="in" maxlength="200"></div>
     <div class="field"><label for="f-review">Đánh giá</label><textarea id="f-review" class="in" maxlength="1500" placeholder="Vị, giá, không gian, phục vụ"></textarea></div>
     <div class="field"><label for="f-mfiles">Kỷ niệm (ảnh của hôm đó)</label>
@@ -640,6 +640,26 @@ function closeForm(){$('#modal').hidden=true;editing=null}
 $('#btn-add').onclick=()=>openForm(null);
 $('#f-cancel').onclick=closeForm;$('#modal-scrim').onclick=closeForm;
 $('#f-pick').onclick=()=>startPick('form');
+$('#f-gmap').onclick=()=>{
+  const q=[$('#f-name').value.trim(),$('#f-addr').value.trim()].filter(Boolean).join(' ');
+  const c=parseCoord($('#f-coord').value);
+  const url=c?'https://www.google.com/maps/search/?api=1&query='+c.lat+','+c.lng
+    :q?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q)
+    :'https://www.google.com/maps';
+  waitGmap=true;
+  window.open(url,'_blank','noopener');
+};
+let waitGmap=false;
+async function grabClipCoord(){
+  if(!waitGmap||$('#modal').hidden)return;
+  try{
+    const t=await navigator.clipboard.readText(),c=parseCoord(t);
+    if(c){$('#f-coord').value=c.lat.toFixed(5)+', '+c.lng.toFixed(5);waitGmap=false;toast('Đã lấy tọa độ từ Google Maps')}
+    else toast('Chưa thấy tọa độ trong bộ nhớ chép. Hãy chép tọa độ hoặc link đầy đủ trên Google Maps.');
+  }catch(e){toast('Trình duyệt chưa cho đọc bộ nhớ chép, bạn dán tọa độ vào ô nhé.');waitGmap=false}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')grabClipCoord()});
+window.addEventListener('focus',grabClipCoord);
 $('#form').addEventListener('submit',async e=>{
   e.preventDefault();
   const c=parseCoord($('#f-coord').value);
